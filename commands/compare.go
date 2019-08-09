@@ -68,18 +68,22 @@ func compare(command *Command, args *Args) {
 	flagCompareBase := args.Flag.Value("--base")
 
 	if args.IsParamsEmpty() {
-		branch, project, err = localRepo.RemoteBranchAndProject("", false)
+		localBranch, err := localRepo.CurrentBranch()
 		utils.Check(err)
 
-		if branch == nil ||
-			(branch.IsMaster() && flagCompareBase == "") ||
-			(flagCompareBase == branch.ShortName()) {
-			utils.Check(command.UsageError(""))
-		} else {
-			r = branch.ShortName()
-			if flagCompareBase != "" {
-				r = parseCompareRange(flagCompareBase + "..." + r)
-			}
+		branch, err = localBranch.Upstream()
+		utils.Check(err)
+
+		remote, err := localRepo.RemoteByName(branch.RemoteName())
+		utils.Check(err)
+
+		project, err = remote.Project()
+		utils.Check(err)
+
+		r = branch.ShortName()
+
+		if flagCompareBase != "" {
+			r = parseCompareRange(flagCompareBase + "..." + r)
 		}
 	} else {
 		if flagCompareBase != "" {
