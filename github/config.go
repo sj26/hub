@@ -3,9 +3,12 @@ package github
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -79,7 +82,43 @@ func (c *Config) PromptForHost(host string) (h *Host, err error) {
 
 	client := NewClientWithHost(h)
 
+	tokenFromCredentials := false
 	if !tokenFromEnv {
+		credentialCmd := exec.Command("git", "credential", "fill")
+		stdin, err := credentialCmd.StdinPipe()
+		if err != nil {
+			log.Fatal(err)
+		}
+		go func() {
+			defer stdin.Close()
+			io.WriteString(stdin, fmt.Sprintf("protocol=%s\n", "https"))
+			io.WriteString(stdin, fmt.Sprintf("host=%s\n", h.Host))
+			if h.User != "" {
+				io.WriteString(stdin, fmt.Sprintf("username=%s\n", h.User))
+			}
+			io.WriteString(stdin, "\n")
+
+		}()
+		output, err := credentialCmd.Output()
+		if err != nil {
+			log.Fatal(err)
+		}
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			keyvalue := strings.SplitN(line, "=", 2)
+			if len(keyvalue) == 2 {
+				key := keyvalue[0]
+				value := keyvalue[1]
+				if key == "password" && value != "" {
+					h.AccessToken = value
+					tokenFromCredentials = true
+					break
+				}
+			}
+		}
+	}
+
+	if !tokenFromEnv && !tokenFromCredentials {
 		utils.Check(CheckWriteable(configsFile()))
 		err = c.authorizeClient(client, host)
 		if err != nil {
@@ -99,7 +138,7 @@ func (c *Config) PromptForHost(host string) (h *Host, err error) {
 		h.User = currentUser.Login
 	}
 
-	if !tokenFromEnv {
+	if !tokenFromEnv && !tokenFromCredentials {
 		err = newConfigService().Save(configsFile(), c)
 	}
 
